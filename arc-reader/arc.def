@@ -1,0 +1,6 @@
+LIBRARY ARC
+EXPORTS
+    cbg_decrypt
+    cbg_free
+    dsc_decrypt
+    dsc_free

@@ -1,0 +1,9 @@
+
+_pycache_/
+*.pyc
+
+*.arc
+
+*.exp
+*.obj
+*.lib
