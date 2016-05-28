@@ -38,7 +38,7 @@ def cbg_decrypt(crypted):
     elif bbp[0] == 32:
         im = Image.frombytes('RGBA', (width[0], height[0]), bytes(buf))
         out = io.BytesIO()
-        im.save(out, format='PNG', bits=bbp[0])
+        im.save(out, format='PNG')
         return out.getvalue()
 
 def dsc_decrypt(crypted):
