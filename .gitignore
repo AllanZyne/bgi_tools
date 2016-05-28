@@ -7,3 +7,6 @@ _pycache_/
 *.exp
 *.obj
 *.lib
+
+*.png
+*.bmp
