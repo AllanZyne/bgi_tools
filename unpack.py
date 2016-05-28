@@ -2,9 +2,35 @@ import glob
 import struct
 import sys
 import os
+import io
+from PIL import Image
 
 import arc
 
+
+def checkAudio(data):
+    magic = struct.unpack_from('<4s', data, 4)[0]
+    return magic.startswith(b'bw  ')
+
+def checkGRPImage(data):
+    width, height, bpp = struct.unpack_from('<HHH', data, 0)
+    if not (bpp == 8 or bpp == 24 or bpp == 32):
+        return
+    return int(width*height*bpp/8)+16 == len(data)
+
+def unpackGRPImage(data):
+    width, height, bpp = struct.unpack_from('<HHH', data, 0)
+    if bpp == 8:
+        pass
+    elif bpp == 24:
+        pass
+    elif bpp == 32:
+        pixels = [(r, g, b, a) for b, g, r, a in struct.iter_unpack('<BBBB', data[16:])]
+        im = Image.new('RGBA', (width, height))
+        im.putdata(pixels)
+        out = io.BytesIO()
+        im.save(out, format='PNG')
+        return out.getvalue()
 
 def unpack(file):
     print()
@@ -26,11 +52,12 @@ def unpack(file):
     print('Count:', fileCount)
 
     entryList = []
+    ii = 1
 
     for name, offset, size, _, _ in struct.iter_unpack('<16sLLLL', entryRaw):
 
         name = name.rstrip(b'\x00').decode('ascii')
-        # print(entryName, offset, size)
+        # print(name, offset, size)
         f.seek(dataOffset + offset)
         entryData = f.read(size)
         decryptData = None
@@ -47,27 +74,32 @@ def unpack(file):
             entryData = arc.dsc_decrypt(entryData)
             entryType = 'DSC FORMAT 1.00'
 
-            # check audio
-            magic = struct.unpack_from('<4s', entryData, 4)[0]
-            if magic.startswith(b'bw'):
+            if checkAudio(entryData):
                 name += '.ogg'
+            elif checkGRPImage(entryData):
+                name += '.png'
+                entryData = unpackGRPImage(entryData)
+
         elif entryData.startswith(b'SDC FORMAT 1.00'):
             # print('SDC FORMAT 1.00', size)
             entryType = 'SDC FORMAT 1.00'
     
         fn = os.path.join(base, name)
-        print(fn)
+
+        print("(%d/%d)" % (ii, fileCount), fn)
+        ii += 1
+
         of = open(fn, 'wb')
         of.write(entryData)
         of.close()
 
         entryList.append((name, entryType))
 
-    fn = os.path.join(base, 'list.txt')
-    of = open(fn, 'w');
-    for e in entryList:
-        of.write('%s %s\n' % e)
-    of.close()
+    # fn = os.path.join(base, 'list.txt')
+    # of = open(fn, 'w');
+    # for e in entryList:
+    #     of.write('%s %s\n' % e)
+    # of.close()
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
