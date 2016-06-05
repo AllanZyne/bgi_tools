@@ -3,10 +3,10 @@ _pycache_/
 *.pyc
 
 *.arc
+*._bp
+*.png
+*.bmp
 
 *.exp
 *.obj
 *.lib
-
-*.png
-*.bmp
