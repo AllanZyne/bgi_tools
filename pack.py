@@ -13,8 +13,13 @@ def packFile(file):
     size = None
     data = None
 
+    # 过滤掉txt文件
     if ext == '.txt':
         return None
+        
+    # 去掉png和ogg的后缀，其他后缀保留
+    if ext != '.png' and ext != '.ogg':
+        name += ext
     
     print(file)
 
@@ -34,6 +39,7 @@ def packFile(file):
 
 def pack(file):
     packName = file + '.arc'
+    print()
     print('package:', packName)
     files = map(lambda x: os.path.join(file, x), os.listdir(file))
     packEntries = map(packFile, files)
