@@ -9,14 +9,21 @@ import asdis
 import bgiop
 
 
+# def get_code_end(data):
+#     pos = -1
+#     while 1:
+#         res = data.find(b'\x1B\x00\x00\x00', pos+1)
+#         if res == -1:
+#             break
+#         pos = res
+#     return pos + 4
+
 def get_code_end(data):
-    pos = -1
-    while 1:
-        res = data.find(b'\x1B\x00\x00\x00', pos+1)
-        if res == -1:
-            break
-        pos = res
-    return pos + 4
+    a, b = struct.unpack('<II', data[0x0c:0x14])
+    if a == 3:
+        return b
+    else:
+        raise Exception('code end unknown')
 
 def get_string(code, addr, pos0):
     pos1 = code.find(b'\x00', pos0)
@@ -40,12 +47,13 @@ def parse(code):
 
         if op == 0x003: # push_string
             fmt, _, _ = bgiop.ops[op]
+            n = struct.calcsize(fmt)
 
             pos0 = struct.unpack(fmt, code[pos:pos+n])[0]
             s = get_string(code, addr, pos0)
+            s = asdis.escape(s)
             strings.append(s)
 
-            n = struct.calcsize(fmt)
             pos += n
         elif 0x140 <= op <= 0x160: # msg_::f_
             if op == 0x140: #or op == 0x143 or op == 0x151 or op == 0x150:
@@ -53,8 +61,11 @@ def parse(code):
                     texts.append({ "name":None, "text":strings[0], "opcode":op })
                 elif len(strings) == 2:
                     texts.append({ "name":strings[0], "text":strings[1], "opcode":op })
+                else:
+                    raise Exception("len(strings) = %d" % len(strings))
             # else:
             #     raise Exception("msg_op=0x%x" % op)
+            strings.clear()
         else:
             strings.clear()
             fmt, _, _ = bgiop.ops[op]
