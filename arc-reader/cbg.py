@@ -3,6 +3,8 @@ import io
 from pprint import pprint
 from queue import PriorityQueue
 
+import sys
+
 
 def bytesAddition(b0, b1):
     a0 = bytearray(len(b0))
@@ -132,18 +134,17 @@ def colorRetransform(biData, width, height, bpp):
 def writeLength(biDst, v):
     if v == 0:
         biDst.write(b'\0')
-        return
-    length = bytearray()
-    while True:
-        c = v & 0x7f
-        v >>= 7
-        if c:
-            length.append(c if not v else c|0x80)
-        if not v:
-            break
-    # print(length)
-    # biDst.write(bytes(length))
-    biDst.write(length)
+    else:
+        length = bytearray()
+        while True:
+            c = v & 0x7f
+            v >>= 7
+            if v:
+                length.append(c|0x80)
+            elif c:
+                length.append(c)
+                biDst.write(length)
+                return
 
 def readLength(biSrc):
     v = 0
@@ -159,11 +160,16 @@ def readLength(biSrc):
             break
     return v
 
-# biDst = io.BytesIO()
-# writeLength(biDst, 0x2323)
-# print(biDst.getvalue())
-# biDst.seek(0)
-# print(hex(readLength(biDst)))
+# for v in range(0xFFFFFFFF):
+#     biDst = io.BytesIO()
+#     writeLength(biDst, v)
+#     biDst.seek(0)
+#     if readLength(biDst) != v:
+#         print(hex(v))
+#         print(biDst.getvalue())
+#         raise Exception('!!!')
+#
+# sys.exit()
 
 ################################################################################
 
@@ -172,7 +178,8 @@ def readLength(biSrc):
 
 # Run Length Code
 #
-def writeRLC(biSrc, biDst):
+def writeRLC(biSrc, _SrcData):
+
     def getNZero():
         buf = bytearray()
         while True:
@@ -182,36 +189,61 @@ def writeRLC(biSrc, biDst):
             elif c != b'\0':
                 buf.append(c[0])
             else:
-                biSrc.seek(biSrc.tell()-1)
-                return buf
+                cc = biSrc.read(1)
+                if cc == b'\0':
+                    biSrc.seek(biSrc.tell()-2)
+                    return buf
+                else:
+                    buf.append(0)
+                    if cc == b'':
+                        return buf
+                    buf.append(cc[0])
+
     def getZero():
         count = 0
         while True:
             c = biSrc.read(1)
-            # print('z', c)
             if c == b'':
-                return count
+                return count, False
             elif c == b'\0':
                 count += 1
             else:
                 biSrc.seek(biSrc.tell()-1)
-                return count
+                return count, True
 
-    size = biSrc.seek(0, 2)
-    biSrc.seek(0)
-    while biSrc.tell() < size:
+    # _biSrc = io.BytesIO(_SrcData)
+
+    biDst = io.BytesIO()
+    while True:
+        off = biSrc.tell()
+
         buf = getNZero()
-        # print(biSrc.tell(), len(buf))
+        if not len(buf):
+            break
+
         writeLength(biDst, len(buf))
         biDst.write(buf)
-        # print(biDst.getvalue())
-        if biSrc.tell() == size:
-            return buf
-        count = getZero()
-        # print(biSrc.tell(), count)
-        if count:
+
+        # l = readLength(_biSrc)
+        # if len(buf) != l:
+        #     raise Exception('!! 0x%x: 0x%x 0x%x' % (off, l, len(buf)))
+        # _biSrc.read(l)
+
+        off = biSrc.tell()
+
+        count, status = getZero()
+        if status:
             writeLength(biDst, count)
-            # print(biDst.getvalue())
+        elif count:
+            writeLength(biDst, count)
+            break
+        else:
+            break
+        # c = readLength(_biSrc)
+        # if c != count:
+        #     raise Exception('!! 0x%x: 0x%x 0x%x' % (off, c, count))
+
+    return biDst.getvalue()
 
 def readRLC(biSrc):
     biDst = io.BytesIO()
@@ -299,112 +331,106 @@ def huffmanCoding(biSrc):
 
     pos = 0
     size = len(coding)
-    dataDst = []
+    dataDst = bytearray()
     while pos < size:
         b = coding[pos:pos+8]
         pos += 8
         dataDst.append(int(b.ljust(8, '0'), 2))
-    # dataDst = bytes(dataDst)
-    # print(dataSrc)
-    # print(dataDst)
-    return freqs, len(dataSrc), bytes(dataDst)
+
+    return freqs, len(dataSrc), dataDst
 
 def huffmanDecoding(freqs, size, biSrc):
-    # t0 = time.perf_counter()
     tree = huffTree(freqs)
-    # t1 = time.perf_counter()
 
-    t2 = time.perf_counter()
     dstData = bytearray(size)
-    ch = biSrc.read(1)[0]
+    ch = biSrc.read(1)
     mask = 0x80
     for i in range(size):
         node = tree
         while node.left:
-            node = node.right if ch & mask else node.left
+            node = node.right if ch[0] & mask else node.left
             mask >>= 1
             if not mask:
-                ch = biSrc.read(1)[0]
+                ch = biSrc.read(1)
                 mask = 0x80
         dstData[i] = node.info
-    t3 = time.perf_counter()
-
-    # print('huffTree', t1 - t0)
-    # print('walkTree', t3 - t2)
     
-    return bytes(dstData)
+    return dstData
 
-class Node:
-    def __init__(self, Fr=0, Left=None, Right=None):
-        self.Val = Fr > 0
-        self.Fr = Fr
-        self.Left = Left
-        self.Right = Right
+#
+# 另一种写法
+#
+# class Node:
+#     def __init__(self, Fr=0, Left=None, Right=None):
+#         self.Val = Fr > 0
+#         self.Fr = Fr
+#         self.Left = Left
+#         self.Right = Right
 
-def walkNodesArr(NodesArr):
-    code = {}
-    def _walkNodesArr(node, prefix=''):
-        if node < 256:
-            code[node]  = prefix
-        else:
-            _walkNodesArr(NodesArr[node].Left, prefix+'0')
-            _walkNodesArr(NodesArr[node].Right, prefix+'1')
-    _walkNodesArr(len(NodesArr)-1)
-    return code
+# def walkNodesArr(NodesArr):
+#     code = {}
+#     def _walkNodesArr(node, prefix=''):
+#         if node < 256:
+#             code[node]  = prefix
+#         else:
+#             _walkNodesArr(NodesArr[node].Left, prefix+'0')
+#             _walkNodesArr(NodesArr[node].Right, prefix+'1')
+#     _walkNodesArr(len(NodesArr)-1)
+#     return code
 
-def huffmanDecoding1(freqs, size, biSrc):
-    NodesArr = []
-    FTotal = 0
-    # t0 = time.perf_counter()
-    for i in range(256):
-        NodesArr.append(Node(freqs[i], i, i))
-        FTotal += freqs[i]
+# def huffmanDecoding1(freqs, size, biSrc):
+#     NodesArr = []
+#     FTotal = 0
+#     # t0 = time.perf_counter()
+#     for i in range(256):
+#         NodesArr.append(Node(freqs[i], i, i))
+#         FTotal += freqs[i]
 
-    while True:
-        ch = [0xFFFFFFFF, 0xFFFFFFFF]
-        frec = 0
-        for i in range(2):
-            fmin = 0xFFFFFFFF
-            for j in range(len(NodesArr)):
-                if NodesArr[j].Val and (NodesArr[j].Fr < fmin):
-                    fmin = NodesArr[j].Fr
-                    ch[i]  = j
-            if ch[i] != 0xFFFFFFFF:
-                NodesArr[ch[i]].Val = False
-                frec += NodesArr[ch[i]].Fr
-        NodesArr.append(Node(frec, ch[0], ch[1]))
-        if frec == FTotal:
-            break
-    # t1 = time.perf_counter()
+#     while True:
+#         ch = [0xFFFFFFFF, 0xFFFFFFFF]
+#         frec = 0
+#         for i in range(2):
+#             fmin = 0xFFFFFFFF
+#             for j in range(len(NodesArr)):
+#                 if NodesArr[j].Val and (NodesArr[j].Fr < fmin):
+#                     fmin = NodesArr[j].Fr
+#                     ch[i]  = j
+#             if ch[i] != 0xFFFFFFFF:
+#                 NodesArr[ch[i]].Val = False
+#                 frec += NodesArr[ch[i]].Fr
+#         NodesArr.append(Node(frec, ch[0], ch[1]))
+#         if frec == FTotal:
+#             break
+#     # t1 = time.perf_counter()
 
-    # print(len(NodesArr), hex(len(NodesArr)))
-    # code = walkNodesArr(NodesArr)
-    # return code
+#     # print(len(NodesArr), hex(len(NodesArr)))
+#     # code = walkNodesArr(NodesArr)
+#     # return code
 
-    ## Walk Tree
+#     ## Walk Tree
 
-    t2 = time.perf_counter()
+#     # t2 = time.perf_counter()
 
-    HummfArr = [0]*size
-    workb = biSrc.read(1)[0]
-    mask = 0x80
-    root = len(NodesArr) - 1
-    for i in range(size):
-        node = root
-        while node >= 256:
-            node = NodesArr[node].Right if workb & mask else NodesArr[node].Left
-            mask >>= 1
-            if not mask:
-                workb = biSrc.read(1)[0]
-                mask = 0x80
-        HummfArr[i] = node
+#     HummfArr = [0]*size
+#     workb = biSrc.read(1)[0]
+#     mask = 0x80
+#     root = len(NodesArr) - 1
+#     for i in range(size):
+#         node = root
+#         while node >= 256:
+#             node = NodesArr[node].Right if workb & mask else NodesArr[node].Left
+#             mask >>= 1
+#             if not mask:
+#                 workb = biSrc.read(1)[0]
+#                 mask = 0x80
+#         HummfArr[i] = node
 
-    t3 = time.perf_counter()
+#     # t3 = time.perf_counter()
 
-    # print('huffTree', t1 - t0)
-    print('walktree', t3 - t2)
+#     # print('huffTree', t1 - t0)
+#     print('walktree', t3 - t2)
 
-    return bytes(HummfArr)
+#     return bytes(HummfArr)
 
 
 # print()
@@ -430,30 +456,33 @@ def keyGen(key):
         key = (((c & 0xffff) << 16) + (a & 0xffff) + 1) & 0xffffffff
 
 def cryptData(data, key):
-    result = []
+    result = bytearray()
     newKey = keyGen(key)
     chkSum = 0
     chkXor = 0
     for ch in data:
-        chkSum = (chkSum + ch)%256
+        chkSum = (chkSum + ch) & 0xff
         chkXor ^= ch
-        result.append((ch + next(newKey))%256)
-    return bytes(result), chkSum, chkXor
+        nch = (ch + next(newKey)) & 0xff
+        result.append(nch)
+    return result, chkSum, chkXor
 
 def decryptData(data, key, chkSum, chkXor):
-    result = []
+    result = bytearray()
     newKey = keyGen(key)
     _chkSum = 0
     _chkXor = 0
+
     for ch in data:
-        nch = (ch - next(newKey))%256
+        nch = (ch - next(newKey)) & 0xff
         result.append(nch)
-        _chkSum = (_chkSum + nch)%256
+        _chkSum = (_chkSum + nch) & 0xff
         _chkXor = _chkXor ^ nch
+
     if (chkSum != _chkSum) or (_chkXor != chkXor):
         raise Exception('decryptData fail')
 
-    return bytes(result)
+    return result
 
 # print()
 # print('encrypt')
@@ -462,80 +491,44 @@ def decryptData(data, key, chkSum, chkXor):
 
 import struct
 
-fo = open('bg07_s01', 'rb')
+
+testFile = 'bg11_s07'
+
+fo = open(testFile, 'rb')
 hdr = fo.read(0x10)
 w, h, bpp, r1, r2 = struct.unpack('<HHIII', fo.read(0x10))
-size, key, eLen, chkSum, chkXor, ver = struct.unpack('<IIIBBH', fo.read(0x10))
-eData = fo.read(eLen)
+size, key, cryptLen, chkSum, chkXor, ver = struct.unpack('<IIIBBH', fo.read(0x10))
 
 print('w', w, 'h', h, 'bpp', bpp)
-print('key', hex(key), 'len', eLen)
+print('key', hex(key), 'clen', cryptLen)
 print('chkSum', hex(chkSum), 'chkXor', hex(chkXor))
+print('size', size, 'ver', ver)
 print()
 
-deData = decryptData(eData, key, chkSum, chkXor)
-# nData, _Sum, _Xor = cryptData(deData, key)
-# print(nData[:10], hex(_Sum), hex(_Xor))
-# newkey = keyGen(key)
-# for _ in range(10):
-#     # print(hex(), hex())
-#     next(newkey)
+print('decryptData')
+cryptFreqsData = fo.read(cryptLen)
+decryptFreqsData = decryptData(cryptFreqsData, key, chkSum, chkXor)
 
-dataFreqs = []
-biData = io.BytesIO(deData)
-for _ in range(256):
-    dataFreqs.append(readLength(biData))
-print('Freqs')
-print('AssertEqual', len(deData), biData.tell())
-print()
-# print(dataFreqs)
+freqsData = []
+biData = io.BytesIO(decryptFreqsData)
+for i in range(256):
+    fr = readLength(biData)
+    freqsData.append(fr)
+print('==', len(decryptFreqsData), biData.tell())
 
-import time
-off = fo.tell()
+
+# # print(hex(off))
 print('huffmanDecoding')
-t0 = time.perf_counter()
-r1 = huffmanDecoding(dataFreqs, size, fo)
-t1 = time.perf_counter()
-print(t1 - t0)
-
+off = fo.tell()
+unhuffData = fo.read()
 fo.seek(off)
-print('huffmanDecoding1')
-t2 = time.perf_counter()
-r2 = huffmanDecoding1(dataFreqs, size, fo)
-t3 = time.perf_counter()
-print(t3 - t2)
-
-print(size)
-print(len(r1), len(r2))
-flag = True
-for i in range(size):
-    if r1[i] != r2[i]:
-        flag = False
-        print(i)
-        break
-print(flag)
-
-# off2 = fo.tell()
-# print(off, fo.seek(0, 2), off2)
-
-
+huffData = huffmanDecoding(freqsData, size, fo)
 
 fo.close()
 
-# huffmanDecoding1()
-# pprint(code)
-
-# for i in range(256):
-#     # if code1[i] != code0[i]:
-#     print(i, code1[i], code0[i])
-
-
-import sys
-sys.exit()
-
 print('readRLC')
 colorData = readRLC(io.BytesIO(huffData))
-print('assertEqual', len(colorData), w*h*(bpp>>3))
+print('==', len(colorData), w*h*(bpp>>3))
 
 print('colorRetransform')
 bColorData = io.BytesIO(colorData)
@@ -552,4 +545,101 @@ if bpp == 24:
     im.putdata(pixels)
     # im = Image.frombytes('RGB', (w, h), bColorData.getvalue())
     im.show()
+elif bpp == 32:
+    im = Image.frombytes('RGBA', (w, h), bColorData.getvalue())
+    im.show()
+elif bpp == 8:
+    im = Image.frombytes('L', (w, h), bColorData.getvalue())
+    im.show()
 
+################################################################################
+
+from PIL import Image
+
+im = Image.open(testFile + '.png')
+
+w, h = im.size
+bpp = None
+pixelsData = None
+
+if im.mode == 'RGB':
+    bpp = 24
+    pixelsData = bytearray()
+    for r, g, b in im.getdata():
+        pixelsData.append(b)
+        pixelsData.append(g)
+        pixelsData.append(r)
+
+elif im.mode == 'RBGA':
+    bpp = 24
+    pixelsData = im.tobytes()
+elif im.mode == 'L':
+    bpp = 8
+    pixelsData = im.tobytes()
+else:
+    raise Exception('im.mode: ' + im.mode)
+
+print()
+print('w', w, 'h', h, 'bpp', bpp)
+
+
+pixelsData = io.BytesIO(pixelsData)
+
+print('colorTransform')
+colorTransform(pixelsData, w, h, bpp)
+
+colorData2 = pixelsData.getvalue()
+print('==', len(colorData), len(colorData2))
+if colorData2 != colorData:
+    print('false')
+# sys.exit()
+
+f = open('bin1', 'wb')
+f.write(colorData2)
+f.close()
+
+print('writeRLC')
+pixelsData.seek(0)
+rlcData = writeRLC(pixelsData, huffData)
+# 
+
+print('readRLC')
+# if readRLC(io.BytesIO(rlcData)) != colorData2:
+if huffData != rlcData:
+    print('false')
+    f = open('bin0', 'wb')
+    f.write(huffData)
+    f.close()
+    f = open('bin2', 'wb')
+    f.write(rlcData)
+    f.close()
+
+print('huffmanCoding')
+freqs, size, huffData = huffmanCoding(io.BytesIO(rlcData))
+
+if huffData != unhuffData:
+    print('false')
+    
+print('cryptData')
+freqsData = io.BytesIO()
+for fr in freqs:
+    writeLength(freqsData, fr)
+
+if decryptFreqsData != freqsData.getvalue():
+    print('false')
+
+_cryptFreqsData, chckSum, chckXor = cryptData(freqsData.getvalue(), key, cryptFreqsData)
+if _cryptFreqsData != cryptFreqsData:
+    print('false')
+
+
+print('write file')
+fo = open(testFile + '.bin', 'wb')
+fo.write(b'CompressedBG___\0')
+# w, h, bpp, r1, r2 = struct.unpack('<HHIII', fo.read(0x10))
+# size, key, enLen, chkSum, chkXor, ver = struct.unpack('<IIIBBH', fo.read(0x10))
+fo.write(struct.pack('<HHIII', w, h, bpp, 0, 0))
+fo.write(struct.pack('<IIIBBH', size, key, len(_cryptFreqsData), chckSum, chckXor, 1))
+fo.write(_cryptFreqsData)
+fo.write(huffData)
+fo.close()
