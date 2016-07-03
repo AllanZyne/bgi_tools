@@ -492,7 +492,7 @@ def decryptData(data, key, chkSum, chkXor):
 import struct
 
 
-testFile = 'bg11_s07'
+testFile = '01ayua02s01'
 
 fo = open(testFile, 'rb')
 hdr = fo.read(0x10)
@@ -546,11 +546,16 @@ if bpp == 24:
     # im = Image.frombytes('RGB', (w, h), bColorData.getvalue())
     im.show()
 elif bpp == 32:
-    im = Image.frombytes('RGBA', (w, h), bColorData.getvalue())
+    # im = Image.frombytes('RGBA', (w, h), bColorData.getvalue())
+    pixels = [(r, g, b, a) for b, g, r, a in struct.iter_unpack('<BBBB', bColorData.getvalue())]
+    im = Image.new('RGBA', (w, h))
+    im.putdata(pixels)
     im.show()
 elif bpp == 8:
     im = Image.frombytes('L', (w, h), bColorData.getvalue())
     im.show()
+
+im.save(testFile + '.png')
 
 ################################################################################
 
@@ -569,10 +574,15 @@ if im.mode == 'RGB':
         pixelsData.append(b)
         pixelsData.append(g)
         pixelsData.append(r)
-
-elif im.mode == 'RBGA':
-    bpp = 24
-    pixelsData = im.tobytes()
+elif im.mode == 'RGBA':
+    bpp = 32
+    # pixelsData = im.tobytes()
+    pixelsData = bytearray()
+    for r, g, b, a in im.getdata():
+        pixelsData.append(b)
+        pixelsData.append(g)
+        pixelsData.append(r)
+        pixelsData.append(a)
 elif im.mode == 'L':
     bpp = 8
     pixelsData = im.tobytes()
@@ -628,7 +638,7 @@ for fr in freqs:
 if decryptFreqsData != freqsData.getvalue():
     print('false')
 
-_cryptFreqsData, chckSum, chckXor = cryptData(freqsData.getvalue(), key, cryptFreqsData)
+_cryptFreqsData, chckSum, chckXor = cryptData(freqsData.getvalue(), key)
 if _cryptFreqsData != cryptFreqsData:
     print('false')
 
