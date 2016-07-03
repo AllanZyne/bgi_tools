@@ -489,167 +489,131 @@ def decryptData(data, key, chkSum, chkXor):
 
 ################################################################################
 
+from PIL import Image
 import struct
 
+def cbg_decrypt(data):
+    fo = io.BytesIO(data)
 
-testFile = '01ayua02s01'
+    hdr = fo.read(0x10)
+    w, h, bpp, r1, r2 = struct.unpack('<HHIII', fo.read(0x10))
+    size, key, cryptLen, chkSum, chkXor, ver = struct.unpack('<IIIBBH', fo.read(0x10))
 
-fo = open(testFile, 'rb')
-hdr = fo.read(0x10)
-w, h, bpp, r1, r2 = struct.unpack('<HHIII', fo.read(0x10))
-size, key, cryptLen, chkSum, chkXor, ver = struct.unpack('<IIIBBH', fo.read(0x10))
+    # print('w', w, 'h', h, 'bpp', bpp)
+    # print('key', hex(key), 'clen', cryptLen)
+    # print('chkSum', hex(chkSum), 'chkXor', hex(chkXor))
+    # print('size', size, 'ver', ver)
+    # print()
 
-print('w', w, 'h', h, 'bpp', bpp)
-print('key', hex(key), 'clen', cryptLen)
-print('chkSum', hex(chkSum), 'chkXor', hex(chkXor))
-print('size', size, 'ver', ver)
-print()
+    # print('decryptData')
+    cryptFreqsData = fo.read(cryptLen)
+    decryptFreqsData = decryptData(cryptFreqsData, key, chkSum, chkXor)
 
-print('decryptData')
-cryptFreqsData = fo.read(cryptLen)
-decryptFreqsData = decryptData(cryptFreqsData, key, chkSum, chkXor)
+    freqsData = []
+    biData = io.BytesIO(decryptFreqsData)
+    for i in range(256):
+        fr = readLength(biData)
+        freqsData.append(fr)
+    # print('==', len(decryptFreqsData), biData.tell())
 
-freqsData = []
-biData = io.BytesIO(decryptFreqsData)
-for i in range(256):
-    fr = readLength(biData)
-    freqsData.append(fr)
-print('==', len(decryptFreqsData), biData.tell())
+    # # print(hex(off))
+    # print('huffmanDecoding')
+    # off = fo.tell()
+    # unhuffData = fo.read()
+    # fo.seek(off)
+    huffData = huffmanDecoding(freqsData, size, fo)
 
+    # fo.close()
 
-# # print(hex(off))
-print('huffmanDecoding')
-off = fo.tell()
-unhuffData = fo.read()
-fo.seek(off)
-huffData = huffmanDecoding(freqsData, size, fo)
+    # print('readRLC')
+    colorData = readRLC(io.BytesIO(huffData))
+    # print('==', len(colorData), w*h*(bpp>>3))
 
-fo.close()
+    # print('colorRetransform')
+    bColorData = io.BytesIO(colorData)
+    colorRetransform(bColorData, w, h, bpp)
 
-print('readRLC')
-colorData = readRLC(io.BytesIO(huffData))
-print('==', len(colorData), w*h*(bpp>>3))
+    # print('image')
+    im = None
+    if bpp == 24:
+        pixels = [(r, g, b) for b, g, r in struct.iter_unpack('<BBB', bColorData.getvalue())]
+        im = Image.new('RGB', (w, h))
+        im.putdata(pixels)
+        # im = Image.frombytes('RGB', (w, h), bColorData.getvalue())
+        # im.show()
+    elif bpp == 32:
+        # im = Image.frombytes('RGBA', (w, h), bColorData.getvalue())
+        pixels = [(r, g, b, a) for b, g, r, a in struct.iter_unpack('<BBBB', bColorData.getvalue())]
+        im = Image.new('RGBA', (w, h))
+        im.putdata(pixels)
+        # im.show()
+    elif bpp == 8:
+        im = Image.frombytes('L', (w, h), bColorData.getvalue())
+        # im.show()
 
-print('colorRetransform')
-bColorData = io.BytesIO(colorData)
-colorRetransform(bColorData, w, h, bpp)
-
-
-print('image')
-
-from PIL import Image
-
-if bpp == 24:
-    pixels = [(r, g, b) for b, g, r in struct.iter_unpack('<BBB', bColorData.getvalue())]
-    im = Image.new('RGB', (w, h))
-    im.putdata(pixels)
-    # im = Image.frombytes('RGB', (w, h), bColorData.getvalue())
-    im.show()
-elif bpp == 32:
-    # im = Image.frombytes('RGBA', (w, h), bColorData.getvalue())
-    pixels = [(r, g, b, a) for b, g, r, a in struct.iter_unpack('<BBBB', bColorData.getvalue())]
-    im = Image.new('RGBA', (w, h))
-    im.putdata(pixels)
-    im.show()
-elif bpp == 8:
-    im = Image.frombytes('L', (w, h), bColorData.getvalue())
-    im.show()
-
-im.save(testFile + '.png')
+    out = io.BytesIO()
+    im.save(out, format='PNG')
+    return out.getvalue()
 
 ################################################################################
 
-from PIL import Image
+def cbg_crypt(file):
+    im = Image.open(file)
 
-im = Image.open(testFile + '.png')
+    w, h = im.size
+    bpp = None
+    pixelsData = None
 
-w, h = im.size
-bpp = None
-pixelsData = None
+    if im.mode == 'RGB':
+        bpp = 24
+        pixelsData = bytearray()
+        for r, g, b in im.getdata():
+            pixelsData.append(b)
+            pixelsData.append(g)
+            pixelsData.append(r)
+    elif im.mode == 'RGBA':
+        bpp = 32
+        pixelsData = bytearray()
+        for r, g, b, a in im.getdata():
+            pixelsData.append(b)
+            pixelsData.append(g)
+            pixelsData.append(r)
+            pixelsData.append(a)
+    elif im.mode == 'L':
+        bpp = 8
+        pixelsData = im.tobytes()
+    else:
+        raise Exception('im.mode: ' + im.mode)
 
-if im.mode == 'RGB':
-    bpp = 24
-    pixelsData = bytearray()
-    for r, g, b in im.getdata():
-        pixelsData.append(b)
-        pixelsData.append(g)
-        pixelsData.append(r)
-elif im.mode == 'RGBA':
-    bpp = 32
-    # pixelsData = im.tobytes()
-    pixelsData = bytearray()
-    for r, g, b, a in im.getdata():
-        pixelsData.append(b)
-        pixelsData.append(g)
-        pixelsData.append(r)
-        pixelsData.append(a)
-elif im.mode == 'L':
-    bpp = 8
-    pixelsData = im.tobytes()
-else:
-    raise Exception('im.mode: ' + im.mode)
+    # print()
+    # print('w', w, 'h', h, 'bpp', bpp)
 
-print()
-print('w', w, 'h', h, 'bpp', bpp)
+    pixelsData = io.BytesIO(pixelsData)
 
+    # print('colorTransform')
+    colorTransform(pixelsData, w, h, bpp)
 
-pixelsData = io.BytesIO(pixelsData)
+    # print('writeRLC')
+    pixelsData.seek(0)
+    rlcData = writeRLC(pixelsData, huffData)
 
-print('colorTransform')
-colorTransform(pixelsData, w, h, bpp)
+    # print('huffmanCoding')
+    freqs, size, huffData = huffmanCoding(io.BytesIO(rlcData))
 
-colorData2 = pixelsData.getvalue()
-print('==', len(colorData), len(colorData2))
-if colorData2 != colorData:
-    print('false')
-# sys.exit()
+    # print('cryptData')
+    freqsData = io.BytesIO()
+    for fr in freqs:
+        writeLength(freqsData, fr)
 
-f = open('bin1', 'wb')
-f.write(colorData2)
-f.close()
+    _cryptFreqsData, chckSum, chckXor = cryptData(freqsData.getvalue(), key)
 
-print('writeRLC')
-pixelsData.seek(0)
-rlcData = writeRLC(pixelsData, huffData)
-# 
+    # print('write file')
+    out = io.BytesIO()
 
-print('readRLC')
-# if readRLC(io.BytesIO(rlcData)) != colorData2:
-if huffData != rlcData:
-    print('false')
-    f = open('bin0', 'wb')
-    f.write(huffData)
-    f.close()
-    f = open('bin2', 'wb')
-    f.write(rlcData)
-    f.close()
-
-print('huffmanCoding')
-freqs, size, huffData = huffmanCoding(io.BytesIO(rlcData))
-
-if huffData != unhuffData:
-    print('false')
+    out.write(b'CompressedBG___\0')
+    out.write(struct.pack('<HHIII', w, h, bpp, 0, 0))
+    out.write(struct.pack('<IIIBBH', size, key, len(_cryptFreqsData), chckSum, chckXor, 1))
+    out.write(_cryptFreqsData)
+    out.write(huffData)
     
-print('cryptData')
-freqsData = io.BytesIO()
-for fr in freqs:
-    writeLength(freqsData, fr)
-
-if decryptFreqsData != freqsData.getvalue():
-    print('false')
-
-_cryptFreqsData, chckSum, chckXor = cryptData(freqsData.getvalue(), key)
-if _cryptFreqsData != cryptFreqsData:
-    print('false')
-
-
-print('write file')
-fo = open(testFile + '.bin', 'wb')
-fo.write(b'CompressedBG___\0')
-# w, h, bpp, r1, r2 = struct.unpack('<HHIII', fo.read(0x10))
-# size, key, enLen, chkSum, chkXor, ver = struct.unpack('<IIIBBH', fo.read(0x10))
-fo.write(struct.pack('<HHIII', w, h, bpp, 0, 0))
-fo.write(struct.pack('<IIIBBH', size, key, len(_cryptFreqsData), chckSum, chckXor, 1))
-fo.write(_cryptFreqsData)
-fo.write(huffData)
-fo.close()
+    return out.getvalue()
