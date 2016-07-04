@@ -3,6 +3,8 @@ import struct
 import sys
 import os
 import io
+
+
 from PIL import Image
 
 import arc
@@ -32,9 +34,10 @@ def unpackGRPImage(data):
         im.save(out, format='PNG')
         return out.getvalue()
 
-def unpack(file):
-    print()
-    print('File:', file)
+def unpack(file, args):
+
+    print(file)
+    print('--------------------')
 
     f = open(file, 'rb')
 
@@ -43,46 +46,49 @@ def unpack(file):
 
     magic, fileCount = struct.unpack('<12sL', f.read(0x10))
     if not magic.startswith(b'PackFile'):
+        print('不能识别该文件！')
         return
     
     entryRaw = f.read(0x20*fileCount)
-    # print(f.tell())
     dataOffset = f.tell()
-    # dataRaw = f.read()
-    print('Count:', fileCount)
-
     entryList = []
     ii = 1
 
     for name, offset, size, _, _ in struct.iter_unpack('<16sLLLL', entryRaw):
 
         name = name.rstrip(b'\x00').decode('ascii')
-        # print(name, offset, size)
+
+        if args.list:
+            print("(%d/%d)" % (ii, fileCount), name)
+            ii += 1
+            continue
+
         f.seek(dataOffset + offset)
         entryData = f.read(size)
         decryptData = None
         entryType = 'NONE'
         # print(len(entryData))
 
-        if entryData.startswith(b'CompressedBG___'):
-            # print('CompressedBG___', size)
-            entryType = 'CompressedBG___'
-            entryData = arc.cbg_decrypt(entryData)
-            name += '.png'
-        elif entryData.startswith(b'DSC FORMAT 1.00'):
-            # print('DSC FORMAT 1.00', name, size)
-            entryData = arc.dsc_decrypt(entryData)
-            entryType = 'DSC FORMAT 1.00'
-
-            if checkAudio(entryData):
-                name += '.ogg'
-            elif checkGRPImage(entryData):
+        if not args.raw:
+            if entryData.startswith(b'CompressedBG___'):
+                # print('CompressedBG___', size)
+                entryType = 'CompressedBG___'
+                entryData = arc.cbg_decrypt(entryData)
                 name += '.png'
-                entryData = unpackGRPImage(entryData)
+            elif entryData.startswith(b'DSC FORMAT 1.00'):
+                # print('DSC FORMAT 1.00', name, size)
+                entryData = arc.dsc_decrypt(entryData)
+                entryType = 'DSC FORMAT 1.00'
 
-        elif entryData.startswith(b'SDC FORMAT 1.00'):
-            # print('SDC FORMAT 1.00', size)
-            entryType = 'SDC FORMAT 1.00'
+                if checkAudio(entryData):
+                    name += '.ogg'
+                elif checkGRPImage(entryData):
+                    name += '.png'
+                    entryData = unpackGRPImage(entryData)
+            elif entryData.startswith(b'SDC FORMAT 1.00'):
+                # print('SDC FORMAT 1.00', size)
+                entryType = 'SDC FORMAT 1.00'
+            # check bmp
     
         fn = os.path.join(base, name)
 
@@ -101,13 +107,22 @@ def unpack(file):
     #     of.write('%s %s\n' % e)
     # of.close()
 
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument("-r", "--raw", action='store_true', help="不解码文件")
+parser.add_argument("-l", "--list", action='store_true', help="列出文件")
+parser.add_argument("-d", "--dir", help="输出文件夹（默认与arc文件一个目录）")
+parser.add_argument('files', nargs='+', help="arc文件")
+
+
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print('Usage: unpack.py <arc file(s)>')
-        print('BGI unpack arc package')
-        sys.exit(1)
-    for arg in sys.argv[1:]:
-        for file in glob.glob(arg):
-            base, ext = os.path.splitext(file)
+    args = parser.parse_args()
+    # print(args)
+    # print("raw {} list {} dir {} files {}".format(args.raw, args.list, args.dir, args.files))
+
+    for file in args.files:
+        for f in glob.glob(file):
+            base, ext = os.path.splitext(f)
             if ext == '.arc':
-                unpack(file)
+                unpack(f, args)
+
