@@ -1,7 +1,4 @@
 
-# Dump file extension
-dext = '.txt'
-
 # Source encoding
 senc = 'cp932'
 
@@ -10,3 +7,4 @@ denc = 'utf-8'
 
 # Insertion encoding
 ienc = 'gbk'
+
