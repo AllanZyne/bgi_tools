@@ -6,9 +6,24 @@ import glob
 import os
 import struct
 import sys
+import codecs
 
 import asdis
 import bpop
+
+text_coding = 'gbk'
+
+def error_handler(err):
+	s = err.object
+	c = s[err.start:err.end]
+	if c == '\u30fb':
+		return ('·', err.end)
+
+	print('!!!!!!', c.encode('gbk', 'xmlcharrefreplace'))
+
+codecs.register_error('gbk_err', error_handler)
+
+
 
 def parse_instr(line, n):
 	strings = set([])
@@ -60,7 +75,8 @@ def parse(asmtxt):
 		symbols[text] = pos
 		text = asdis.unescape(text[1:-1])
 		texts.append(text)
-		pos += len(text.encode('cp932')) + 1
+		# print(str(text.encode('gbk', 'gbk_err'), 'gbk'))
+		pos += len(text.encode(text_coding, 'gbk_err')) + 1
 	while pos % 0x10 != 0:
 		pos += 1
 	size = pos
@@ -86,7 +102,7 @@ def out(fo, instrs, symbols, texts, size):
 	while fo.tell() % 0x10 != 0:
 		fo.write(b'\x00')
 	for text in texts:
-		fo.write(text.encode('cp932') + b'\x00')
+		fo.write(text.encode(text_coding, 'gbk_err') + b'\x00')
 	while fo.tell() % 0x10 != 0:
 		fo.write(b'\x00')
 

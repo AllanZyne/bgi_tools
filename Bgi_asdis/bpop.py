@@ -22,18 +22,25 @@ def get_offset(code, addr, *args):
 	offsets.add(offset)
 	return offset
 
+# <: little-endian, std. size & alignment
+# b:signed byte
+# h:short
+# i:int
+# B:unsigned byte
+
 ops = {
-0x00: ('b', 'push_byte(%#x)', None),
-0x01: ('<h', 'push_word(%#x)', None),
-0x02: ('<i', 'push_dword(%#x)', None),
+0x00: ('b', 'push_byte(%#x)', None),  #@0:1
+0x01: ('<h', 'push_word(%#x)', None),  #@0:1
+0x02: ('<i', 'push_dword(%#x)', None),  #@0:1
 
-0x04: ('<h', 'push_base_offset(%#x)', None),
-0x05: ('<h', 'push_string("%s")', get_string),
-0x06: ('<h', 'push_offset(L%05x)', get_offset),
+0x04: ('<h', 'push_base_offset(%#x)', None), 
+0x05: ('<h', 'push_string("%s")', get_string),  
+0x06: ('<h', 'push_offset(L%05x)', get_offset),  #@0:1
 
-0x08: ('b', 'load(%#x)', None),
-0x09: ('b', 'move(%#x)', None),
-0x0A: ('b', 'move_arg(%#x)', None),
+# SIZE: [0] byte [1] word [2] dword
+0x08: ('b', 'load(%#x)', None),  # @1:1(var)   得到变量
+0x09: ('b', 'move(%#x)', None),  # @2:1(val, var)   保存变量   
+0x0A: ('b', 'move_arg(%#x)', None),  # @2:0(var,val)   保存变量  
 0x0B: ('<bi', 'cmd_0b(%#x, %#x)', None),
 0x0C: ('bb', 'cmd_0c(%#x, %#x)', None),
 
@@ -41,7 +48,7 @@ ops = {
 0x11: ('', 'store_base()', None),
 
 0x14: ('', 'jmp()', None),
-0x15: ('b', 'jc(%#x)', None),
+0x15: ('b', 'jc(%#x)', None),  # @2:0(offset,val)  0: val != 0  1: val == 0 
 0x16: ('', 'call()', None),
 0x17: ('', 'ret()', None),
 
@@ -86,8 +93,8 @@ ops = {
 0x67: ('', 'cmd_67()', None),
 0x68: ('', 'cmd_68()', None),
 0x69: ('', 'cmd_69()', None),
-0x6A: ('', 'cmd_6a()', None),
-0x6B: ('', 'cmd_6b()', None),
+0x6A: ('', 'cmd_6a()', None),  # strcpy
+0x6B: ('', 'cmd_6b()', None),  
 0x6C: ('', 'cmd_6c()', None),
 0x6D: ('', 'cmd_6d()', None),
 0x6E: ('', 'cmd_6e()', None),
@@ -113,8 +120,9 @@ ops = {
 
 0xA0: ('B', 'snd1(%#02x)', None),
 
-0xB0: ('B', 'usr1(%#02x)', None),
-
+0xB0: ('B', 'usr1(%#02x)', None),   
+##  0x86@5:1(val1,val2,var1,var2,var3)  GAME KEY ID
+##  0x80@:  MESSAGE BOX
 0xC0: ('B', 'usr2(%#02x)', None),
 
 }

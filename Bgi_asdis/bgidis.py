@@ -22,10 +22,10 @@ def get_code_end(data):
 	
 def parse_hdr(hdr):
 	hdrtext = hdr[:0x1C].rstrip(b'\x00').decode('cp932')
+	hdrsize = struct.unpack('<I', hdr[0x1C:0x20])[0]
 	defines = {}
-	entries, = struct.unpack('<I', hdr[0x24:0x28])
-	pos = 0x28
-	for k in range(entries):
+	pos = 0x24
+	while pos < hdrsize:
 		pos1 = hdr.find(b'\x00', pos)
 		name = hdr[pos:pos1].decode('cp932')
 		pos = pos1 + 1
@@ -40,6 +40,10 @@ def parse(code, hdr):
 	else:
 		hdrtext = None
 		defines = {}
+	
+	print(hdrtext)
+	print(defines)
+
 	bgiop.clear_offsets()
 	inst = {}
 	size = get_code_end(code)
