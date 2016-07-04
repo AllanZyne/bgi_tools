@@ -6,9 +6,12 @@ import sys
 import io
 import codecs
 
+__dir__ = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(__dir__ + '/../Bgi_asdis')
+
 import asdis
 import bpop
-import bpconfig
+import config
 
 def get_code_end(data):
     pos = -1

@@ -8,8 +8,12 @@ import re
 import io
 import codecs
 
+__dir__ = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(__dir__ + '/../Bgi_asdis')
+
 import asdis
 import bgiop
+import config
 
 
 def get_string(code, addr, pos0):

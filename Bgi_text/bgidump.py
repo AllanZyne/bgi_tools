@@ -5,8 +5,12 @@ import struct
 import sys
 import base64
 
+__dir__ = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(__dir__ + '/../Bgi_asdis')
+
 import asdis
 import bgiop
+import config
 
 
 # def get_code_end(data):
