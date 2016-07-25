@@ -21,7 +21,6 @@ unpack.py
 - python3 实现的 arc 包的拆包、打包工具
 
 ```
-# python3
 pip install -r requirements.txt
 
 py unpack.py --help
