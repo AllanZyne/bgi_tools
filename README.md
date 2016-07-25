@@ -5,9 +5,6 @@
 Bgi_text
 - 在 Bgi_asdis 基础上做的文本导入和导出
 
-pack.py
-unpack.py
-- 打包和拆包 arc 文档,
 
 [arc-reader](https://github.com/minirop/arc-reader)
 - arc 包的拆包和解密工具（c）
@@ -17,8 +14,11 @@ arc-writer
 - 参考 arc-reader 实现的加密和解密算法（python3）
 
 arc.py
-- python3 实现的 arc 包的拆包、打包工具
 - arc-reader 的 dll 提供解密算法，arc-writer 提供加密算法
+
+pack.py  
+unpack.py
+- python3 实现的 arc 包的拆包、打包工具
 
 ```
 # python3
