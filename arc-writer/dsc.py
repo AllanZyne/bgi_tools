@@ -45,6 +45,7 @@ class BitsIO:
             if not self.__bitMask:
                 self.__nextByte__()
             v = self.__currentByte & self.__bitMask
+            # print('byte', hex(self.__currentByte))
             self.__bitMask >>= 1
             self.__offsetBits += 1
             if v:
@@ -108,7 +109,7 @@ class HuffmanNode:
         if (self.left is not None) and (self.right is not None):
             return '<HuffmanNode %d %d>' % (self.left, self.right)
         elif self.code is not None:
-            return '<HuffmanNode %d>' % self.code
+            return '<HuffmanNode (%d)>' % self.code
         else:
             return '<HuffmanNode>'
 
@@ -176,18 +177,27 @@ decompressResult = []
 def decompress(tree, fi, decCount):
     global decompressResult
 
+    #print('decompress', fi.tell())
+
     bits = BitsIO(fi.read())
     out = io.BytesIO()
     for _ in range(decCount):
         node = 0
         while True:
-            if bits.read(1):
+            bit = bits.read(1)
+            # print('bit:', bit)
+            if bit:
                 node = tree[node].right
             else:
                 node = tree[node].left
+            # print('node', hex(node))
             if tree[node].code is not None:
                 break
         code = tree[node].code
+
+        # print('code', code)
+        # if _ == 0:
+        #     break
 
         if code < 256:
             out.write(bytes([code]))
@@ -230,6 +240,7 @@ def findLongestMatch(data, charPos):
     # update matchtable
     global matchtable
     global matchPos
+
     for pos in range(matchPos, charPos-1):
         ch = data[pos:pos+2]
         if ch in matchtable:
@@ -357,8 +368,10 @@ def walkTree(tree):
     def _walk(node, prefix=''):
         n = tree[node]
         if n.code is None:
-            _walk(n.left, prefix+'0')
-            _walk(n.right, prefix+'1')
+            # _walk(n.left, prefix+'0')
+            # _walk(n.right, prefix+'1')
+            _walk(n.left, prefix+'1')
+            _walk(n.right, prefix+'0')
         else:
             code[prefix] = n.code
             # code[n.code] = prefix
@@ -373,42 +386,65 @@ def dsc_decrypt(data):
     # reserved = 0
     key, size, decCount, reserved = struct.unpack('<IIII', fi.read(16))
 
-    # print('m', magic)
-    # print('k', hex(key), 's', hex(size))
-    # print('dc', decCount)
-    # print('r', reserved)
+    print('m', magic)
+    print('k', hex(key), 's', hex(size))
+    print('dc', decCount)
+    print('r', reserved)
 
     newKey = keyGen(key)
     leafNodes = []
 
     for i in range(512):
-        depth = (fi.read(1)[0] - next(newKey)) & 0xff
+        key = next(newKey)
+        # print(hex(key))
+        # if i == 10:
+        #     sys.quit()
+        depth = (fi.read(1)[0] - key) & 0xff
         # print(i, depth)
         if depth:
             leafNodes.append((depth, i))
 
-    tree = HuffmanTree(sorted(leafNodes))
+    leafNodes = sorted(leafNodes)
+
+    # for n in leafNodes:
+    #     print(hex(n[0]), hex(n[1]))
+    # sys.exit()
+
+    tree = HuffmanTree(leafNodes)
+
+    # for i in range(len(tree)):
+    #     print(tree[i])
+    # sys.exit()
+
     # walkTree(tree)
+    # sys.exit()
     # print(fi.tell())
     # print('decompress')
     return decompress(tree, fi, decCount)
 
+from queue import PriorityQueue
 
 # Canonical Huffman Coding
 #
 def huffmanCoding(data):
     weights = [0]*0x1ff
-    
+
     for code, pos in data:
         weights[code] += 1
 
-    
-    
+    def _length(code, length):
+        return (code + length) >> 1
+
+    p = PriorityQueue()
+    for w in weights:
+        p.putvalue(w)
+
 
 import glob
 
-# for file in glob.glob('sysgrp\\_SGMusic600000'):
-for file in glob.glob('sysprg\\*._bp'):
+
+for file in glob.glob('sysgrp\\_SGMusic600000'):
+# for file in glob.glob('sysprg\\*._bp'):
 # for file in ['sysprg\\usdtwnd._bp']:
     print(file)
     fi = open(file, 'rb')
@@ -419,9 +455,11 @@ for file in glob.glob('sysprg\\*._bp'):
     # print('--decript')
     out = dsc_decrypt(data)
 
-    # fo = open('accssflctrl', 'wb')
-    # fo.write(out)
-    # fo.close()
+    fo = open(file + '.pydec', 'wb')
+    fo.write(out)
+    fo.close()
+
+    break
     # print('--compress')
     # import profile
     # profile.run("compress(out)", "prof.txt")
@@ -441,7 +479,3 @@ for file in glob.glob('sysprg\\*._bp'):
         for a in decompressResult:
             f1.write(a.__str__() + '\n')
         f1.close()
-
-
-
-
