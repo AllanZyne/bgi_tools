@@ -10,6 +10,7 @@
 #include <forward_list>
 #include <list>
 #include <memory>
+#include <utility>
 
 #include "optional.hpp"
 
@@ -33,10 +34,33 @@ class DSC_Encript {
         int code;
     };
 
-    struct TreeNode {
-        int left;
-        int right;
-        optional<int> code;
+    class TreeNode {
+        static int NodeIndex;
+
+        TreeNode* left;
+        TreeNode* right;
+        int code;
+        int index;
+
+    public:
+        TreeNode(int code)
+            : code(code)
+            , index(TreeNode::NodeIndex++)
+        {
+        }
+
+        TreeNode(TreeNode* left, TreeNode* right)
+            : code(-1)
+            , left(left)
+            , right(right)
+            , index(TreeNode::NodeIndex++)
+        {
+        }
+
+        bool operator<(const TreeNode& node)
+        {
+            return index < node.index;
+        }
     };
 
     struct CompressPair {
@@ -44,23 +68,30 @@ class DSC_Encript {
         optional<int> offset;
     };
 
+    //typedef pair<int, int> FreqPair;
+
+    struct FreqPair
+    {
+        int freq;
+        TreeNode* node;
+    };
+
     ifstream fin;
     TreeNode tree[1024];
 
     list<char*> hashTable[0x10000];
 
+#define MATCH_MAX 0xff
 #define WINDOW_BIT 12
 #define WINDOW_SIZE (1 << 12)
 
     //char window[WINDOW_SIZE*2];
     char *window;
-    //char * const pWindow0, * const pWindow1;
-    char *pCur0, *pEnd0, *pCur, *pCur1, *pEnd1;
+    char *pCur0, *pEnd0, *pCur;
+    //char *pCur1, *pEnd1;
 
 public:
     DSC_Encript()
-        //: pWindow0(window)
-        //, pWindow1(&window[WINDOW_SIZE])
     {
     }
 
@@ -77,7 +108,7 @@ public:
 
     bool longestMatch(int& maxSize, int& maxPos)
     {
-        char *_pCur = pCur + 1, *_pEnd = _pCur + 0xff;
+        char *_pCur = pCur + 1, *_pEnd = _pCur + MATCH_MAX;
         if (_pEnd > pEnd0)
             _pEnd = pEnd0;
 
@@ -89,7 +120,7 @@ public:
             if (size > maxSize) {
                 maxSize = size;
                 maxPos = pCur - pPos - 1;
-                if (maxSize == 0xff)
+                if (maxSize == MATCH_MAX)
                     return true;
             }
         }
@@ -98,8 +129,6 @@ public:
 
     void putHTable(char* pCur) {
         //cout << hex << "putHTable 0x" << *reinterpret_cast<short*>(pCur0 - 2) << endl;
-        //unsigned short key = *reinterpret_cast<unsigned short*>(pCur0 - 2);
-        //hashTable[key].push_front(pCur0);
         hashTable[*reinterpret_cast<unsigned short*>(pCur-2)].push_front(pCur);
     }
 
@@ -107,13 +136,10 @@ public:
         hashTable[*reinterpret_cast<unsigned short*>(pCur)].pop_back();
     }
 
-    void compress() {
-        vector<CompressPair> out;
-
-        ofstream log("log2.txt", ios_base::out);
-
+    void compress(vector<CompressPair>& out) {
+        //ofstream log("log2.txt", ios_base::out);
         //cout << hex << int((unsigned char)*pCur) << endl;
-        log << hex << int((unsigned char)*pCur) << endl;
+        //log << hex << int((unsigned char)*pCur) << endl;
         out.push_back({ *pCur, nullopt });
         if (pCur + 1 == pEnd0) {
             return;
@@ -126,13 +152,13 @@ public:
             longestMatch(size, pos);
             if (size < 0) {
                 //cout << hex << int((unsigned char)*(pCur - 1)) << endl;
-                log << hex << int((unsigned char)*(pCur-1)) << endl;
+                //log << hex << int((unsigned char)*(pCur-1)) << endl;
                 out.push_back({ *(pCur-1), nullopt });
                 putHTable(pCur);
                 pCur++;
             } else {
                 //cout << hex << (size | 0x100) << ", " << pos << endl;
-                log << hex << (size | 0x100) << ", " << pos << endl;
+                //log << hex << (size | 0x100) << ", " << pos << endl;
                 out.push_back({ size | 0x100, pos });
                 size += 2;
                 while (size--) {
@@ -165,13 +191,68 @@ public:
             fin.read(window, fileSize);
             pCur0 = pCur = window;
             pEnd0 = window + fin.gcount();
-            compress();
+
         //}
         return true;
     }
 
+    //bool freqpair_compare(const FreqPair& p1, const FreqPair& p2)
+    //{
+    //    if (p1.freq != p2.freq)
+    //        return p1.freq < p2.freq;
+    //    else
+    //        return p1.code < p2.code;
+    //}
+
+    void huffTree(vector<int>& freqs)
+    {
+        auto freqpair_compare = [](const FreqPair& p1, const FreqPair& p2) -> bool {
+            if (p1.freq != p2.freq)
+                return p1.freq < p2.freq;
+            else
+                return p1.node < p2.node;
+        };
+
+        priority_queue<FreqPair, vector<FreqPair>, decltype(freqpair_compare)>
+        freqs_queue(freqpair_compare);
+
+        for (int i = 0; i < 0x200; i++) {
+            if (freqs[i] > 0)
+                freqs_queue.emplace(freqs[i], new TreeNode(i));
+        }
+
+        while (freqs_queue.size() > 1) {
+            const FreqPair& l = freqs_queue.top();
+            freqs_queue.pop();
+            const FreqPair& r = freqs_queue.top();
+            freqs_queue.pop();
+            freqs_queue.emplace(l.freq + r.freq, new TreeNode(l.node, r.node));
+        }
+        TreeNode* root = freqs_queue.top().node;
+        
+    }
+
     bool save(const string& fileName)
     {
+        //auto cpair_comp = [](const CompressPair& p1, const CompressPair& p2) {
+        //    if (p1.code != p2.code)
+        //        return p1.code < p2.code;
+        //    else
+        //        return p1.offset < p2.offset;
+        //};
+
+        vector<CompressPair> out;
+        compress(out);
+
+        vector<int> freqs(0x200, 0);
+        for (auto& p : out) {
+            freqs[p.code]++;
+        }
+
+        //make_heap(freqs.begin(), freqs.end(), []() {
+
+        //});
+
         return true;
     }
 };
@@ -387,13 +468,24 @@ public:
 
 void main()
 {
-    unique_ptr<DSC_Decript> dec = make_unique<DSC_Decript>();
-    dec->load("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008");
-    dec->save("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008.dec");
+    //unique_ptr<DSC_Decript> dec = make_unique<DSC_Decript>();
+    //dec->load("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008");
+    //dec->save("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008.dec");
 
-    unique_ptr<DSC_Encript> enc = make_unique<DSC_Encript>();
-    enc->load("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008.dec");
-    enc->save("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008.enc");
+    //unique_ptr<DSC_Encript> enc = make_unique<DSC_Encript>();
+    //enc->load("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008.dec");
+    //enc->save("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008.enc");
+
+    //int a;
+    //cin >> a;
+
+    //int v1 = 1, v2 = 2;
+
+    //int &rv1 = v1;
+
+    //int *pv1 = &rv1;
+
+    //cout << *pv1 << endl;
 
     int a;
     cin >> a;
