@@ -42,7 +42,7 @@ def cbg_decrypt(crypted):
         return out.getvalue()
 
 def dsc_decrypt(crypted):
-    fsize = ffi.new('uint32_t *');
+    fsize = ffi.new('uint32_t *')
     data = arc.dsc_decrypt(crypted, len(crypted), fsize)
     buf = ffi.buffer(data, fsize[0])
     # arc.dsc_free(data)
