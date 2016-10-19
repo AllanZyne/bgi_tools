@@ -10,3 +10,5 @@ _pycache_/
 *.exp
 *.obj
 *.lib
+
+*.sublime-workspace
