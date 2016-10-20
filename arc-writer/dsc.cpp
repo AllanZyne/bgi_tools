@@ -11,6 +11,7 @@
 #include <list>
 #include <memory>
 #include <utility>
+#include <functional>
 
 #include "optional.hpp"
 
@@ -18,6 +19,67 @@
 using namespace std;
 using namespace std::experimental;
 
+
+typedef pair<int, int> CodesPair;
+
+template<>
+struct greater<CodesPair>
+{
+	bool operator()(const CodesPair& left, const CodesPair& right)
+	{
+		return left.first != right.first ? left.first > right.first : left.second > right.second;
+	}
+};
+
+
+class TreeNode {
+	static int NodeIndex;
+	int index;
+
+public:
+	TreeNode* left;
+	TreeNode* right;
+	int code;
+
+	TreeNode(int code)
+		: code(code)
+		, index(TreeNode::NodeIndex++)
+	{
+	}
+
+	TreeNode(TreeNode* left, TreeNode* right)
+		: code(-1)
+		, left(left)
+		, right(right)
+		, index(TreeNode::NodeIndex++)
+	{
+	}
+
+	bool operator<(const TreeNode& node)
+	{
+		return index < node.index;
+	}
+};
+
+struct FreqPair
+{
+	int freq;
+	TreeNode* node;
+
+	FreqPair(int freq, TreeNode* node)
+		: freq(freq), node(node)
+	{
+	}
+};
+
+template<>
+struct less<FreqPair>
+{
+	bool operator()(const FreqPair& left, const FreqPair& right)
+	{
+		return left.freq != right.freq ? left.freq> right.freq : left.node > right.node;
+	}
+};
 
 
 class DSC_Encript {
@@ -34,67 +96,32 @@ class DSC_Encript {
         int code;
     };
 
-    class TreeNode {
-        static int NodeIndex;
-
-        TreeNode* left;
-        TreeNode* right;
-        int code;
-        int index;
-
-    public:
-        TreeNode(int code)
-            : code(code)
-            , index(TreeNode::NodeIndex++)
-        {
-        }
-
-        TreeNode(TreeNode* left, TreeNode* right)
-            : code(-1)
-            , left(left)
-            , right(right)
-            , index(TreeNode::NodeIndex++)
-        {
-        }
-
-        bool operator<(const TreeNode& node)
-        {
-            return index < node.index;
-        }
-    };
 
     struct CompressPair {
         int code;
         optional<int> offset;
     };
 
-    //typedef pair<int, int> FreqPair;
-
-    struct FreqPair
-    {
-        int freq;
-        TreeNode* node;
-    };
-
-    ifstream fin;
-    TreeNode tree[1024];
-
-    list<char*> hashTable[0x10000];
-
 #define MATCH_MAX 0xff
 #define WINDOW_BIT 12
 #define WINDOW_SIZE (1 << 12)
 
-    //char window[WINDOW_SIZE*2];
     char *window;
     char *pCur0, *pEnd0, *pCur;
-    //char *pCur1, *pEnd1;
+
+	ifstream fin;
+	list<char*> hashTable[0x10000];
+
+	struct CodePair {
+		int code;
+		int length;
+	};
+	CodePair codes[0x200];
 
 public:
     DSC_Encript()
     {
     }
-
 
     int match(char* src, char* dst, char* dst_end)
     {
@@ -196,25 +223,43 @@ public:
         return true;
     }
 
-    //bool freqpair_compare(const FreqPair& p1, const FreqPair& p2)
-    //{
-    //    if (p1.freq != p2.freq)
-    //        return p1.freq < p2.freq;
-    //    else
-    //        return p1.code < p2.code;
-    //}
-
-    void huffTree(vector<int>& freqs)
+  	void walkTree(TreeNode* root)
     {
-        auto freqpair_compare = [](const FreqPair& p1, const FreqPair& p2) -> bool {
-            if (p1.freq != p2.freq)
-                return p1.freq < p2.freq;
-            else
-                return p1.node < p2.node;
+        priority_queue<CodesPair, vector<CodesPair>, greater<CodesPair>> codesQueue;
+
+        function<void(TreeNode*, int)> _walk = [&_walk, &codesQueue](TreeNode* node, int prefix) {
+            if (node->code < 0) {
+                _walk(node->left, ++prefix);
+                _walk(node->right, ++prefix);
+            } else {
+                //codesQueue.put(make_pair(prefix, node->code));
+				codesQueue.emplace(prefix, node->code);
+            }
+			delete node;
         };
 
-        priority_queue<FreqPair, vector<FreqPair>, decltype(freqpair_compare)>
-        freqs_queue(freqpair_compare);
+        _walk(root, 0);
+
+		int canLength = codesQueue.top().first, canCode = 0, canCount = 0;
+		while (!codesQueue.empty()) {
+			const CodesPair& p = codesQueue.top();
+			codesQueue.pop();
+			if (p.first == canLength) {
+				auto & cp = codes[p.second];
+				cp.code = canCode + canCount;
+				cp.length = canLength;
+				canCount++;
+			} else {
+				canCode = (canCode + canCount + 1) >> 1;
+				canCount = 0;
+				canLength--;
+			}
+		}
+    }
+
+    void huffmanEncoding(int freqs[0x200])
+    {
+        priority_queue<FreqPair> freqs_queue;
 
         for (int i = 0; i < 0x200; i++) {
             if (freqs[i] > 0)
@@ -228,30 +273,24 @@ public:
             freqs_queue.pop();
             freqs_queue.emplace(l.freq + r.freq, new TreeNode(l.node, r.node));
         }
+
         TreeNode* root = freqs_queue.top().node;
-        
+		walkTree(root); // by the way, delete treeNodes
     }
 
     bool save(const string& fileName)
     {
-        //auto cpair_comp = [](const CompressPair& p1, const CompressPair& p2) {
-        //    if (p1.code != p2.code)
-        //        return p1.code < p2.code;
-        //    else
-        //        return p1.offset < p2.offset;
-        //};
-
         vector<CompressPair> out;
         compress(out);
 
-        vector<int> freqs(0x200, 0);
+        int freqs[0x200];
         for (auto& p : out) {
             freqs[p.code]++;
         }
+		huffmanEncoding(freqs);
 
-        //make_heap(freqs.begin(), freqs.end(), []() {
+		// TODO: bit stream
 
-        //});
 
         return true;
     }
@@ -472,7 +511,7 @@ void main()
     //dec->load("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008");
     //dec->save("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008.dec");
 
-    //unique_ptr<DSC_Encript> enc = make_unique<DSC_Encript>();
+    unique_ptr<DSC_Encript> enc = make_unique<DSC_Encript>();
     //enc->load("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008.dec");
     //enc->save("D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGDialog990008.enc");
 
