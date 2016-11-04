@@ -116,11 +116,10 @@ public:
         register char _value = 0;
         if (bits <= m_aval_bits) {
             m_aval_bits -= bits;
-            while (bits--) {
-                _value <<= 1;
-                _value |= value & 1;
-                value >>= 1;
-            }
+
+            _value = value & ((1 << bits)-1);
+            //value >>= bits;
+
             m_bit_buf |= _value << m_aval_bits;
             if (! m_aval_bits) {
                 put(m_bit_buf);
@@ -129,74 +128,43 @@ public:
             }
         } else {
             bits -= m_aval_bits;
-            while (m_aval_bits--) {
-                _value <<= 1;
-                _value |= value & 1;
-                value >>= 1;
-            }
+
+            _value = (value >> bits) & ((1 << m_aval_bits)-1);
+            m_aval_bits = 0;
             _value |= m_bit_buf;
             put(_value);
 
             if (bits < 8) // #1
                 goto end;
 
-            _value = 0;
             bits -= 8;
-            int loop = 8;
-            while (loop--) {
-                _value <<= 1;
-                _value |= value & 1;
-                value >>= 1;
-            }
+            _value = (value >> bits) & 0xff;
             put(_value);
 
             if (bits < 8) // #2
                 goto end;
 
-            _value = 0;
             bits -= 8;
-            loop = 8;
-            while (loop--) {
-                _value <<= 1;
-                _value |= value & 1;
-                value >>= 1;
-            }
+            _value = (value >> bits) & 0xff;
             put(_value);
 
             if (bits < 8) // #3
                 goto end;
 
-            _value = 0;
             bits -= 8;
-            loop = 8;
-            while (loop--) {
-                _value <<= 1;
-                _value |= value & 1;
-                value >>= 1;
-            }
+            _value = (value >> bits) & 0xff;
             put(_value);
 
             if (bits < 8) // #4
                 goto end;
 
-            _value = 0;
             bits -= 8;
-            loop = 8;
-            while (loop--) {
-                _value <<= 1;
-                _value |= value & 1;
-                value >>= 1;
-            }
+            _value = (value >> bits) & 0xff;
             put(_value);
         end:
             if (bits) {
-                _value = 0;
                 m_aval_bits = 8 - bits;
-                while (bits--) {
-                    _value <<= 1;
-                    _value |= value & 1;
-                    value >>= 1;
-                }
+                _value = value & ((1 << bits)-1);
                 m_bit_buf = _value << m_aval_bits;
             } else {
                 m_bit_buf = 0;
@@ -312,9 +280,10 @@ public:
     }
 
     void compress(vector<CompressPair>& out) {
+#ifdef _DEBUG
         ofstream log("enc-codes.txt", ios_base::out);
-        //cout << hex << int((unsigned char)*pCur) << endl;
         log << dec << "" << int((unsigned char)*pCur) << endl;
+#endif
         out.push_back({ (*pCur) & 0xff, nullopt });
         if (pCur + 1 == pEnd0) {
             return;
@@ -326,14 +295,16 @@ public:
             size = pos = -1;
             longestMatch(size, pos);
             if (size < 0) {
-                //cout << hex << int((unsigned char)*(pCur - 1)) << endl;
+#ifdef _DEBUG
                 log << dec << "" << int((unsigned char)*(pCur-1)) << endl;
+#endif
                 out.push_back({ (*(pCur-1)) & 0xff, nullopt });
                 putHTable(pCur);
                 pCur++;
             } else {
-                //cout << hex << (size | 0x100) << ", " << pos << endl;
+#ifdef _DEBUG
                 log << dec << "" <<  (size | 0x100) << ", " << pos << endl;
+#endif
                 out.push_back({ (size & 0xff) | 0x100, pos });
                 size += 2;
                 while (size--) {
@@ -426,7 +397,10 @@ public:
             return s;
         };
 
+
+#ifdef _DEBUG
         ofstream log("log-tree2.txt", ios_base::out);
+#endif
 
 		int canDepth = codesQueue.top().first, canCode = 0, canCount = 0;
 		while (!codesQueue.empty()) {
@@ -435,9 +409,11 @@ public:
 				auto & cp = codes[p.second];
 				cp.code = canCode + canCount;
 				cp.depth = canDepth;
-                //cout << cp.code << ", " << cp.length << ": " << print(cp.code, cp.length) << endl;
+                cp.code = ~cp.code;  // hot fix!
+#ifdef _DEBUG
                 log << " '" << print(cp.code, cp.depth) << "': " << p.second << "," << endl;
-				canCount++;
+#endif
+                canCount++;
                 codesQueue.pop();
 			} else {
 				canCode = (canCode + canCount + 1) >> 1;
@@ -498,8 +474,7 @@ public:
         DSC_Head head(fileSize, out.size());
         fout.write(reinterpret_cast<char*>(&head), sizeof head);
 
-        auto keyGen = [&head]() -> char {
-            static unsigned key = head.key;
+        auto keyGen = [](unsigned int& key) -> char {
             register unsigned a = (key & 0xffff) * 20021;
             register unsigned b = (key >> 16) * 20021;
             register unsigned c = (key * 346 + b) + (a >> 16);
@@ -507,12 +482,17 @@ public:
             return c & 0xff;
         };
 
-        ofstream log("enc_depth.txt");
+#ifdef _DEBUG
+        ofstream log("enc-depth.txt");
+#endif
 
         for (auto& code : codes) {
-            char depth = code.depth + keyGen();
+            char key = keyGen(head.key);
+            char depth = code.depth + key;
             fout.put(depth);
+#ifdef _DEBUG
             log << code.depth << endl;
+#endif
         }
 
         for (auto& o : out) {
@@ -554,11 +534,11 @@ class DSC_Decript {
 public:
     DSC_Decript()
     {
+        DSC_Decript::get_bit_n = -1;
     }
 
-    char keyGen()
+    char keyGen(unsigned int& key)
     {
-        static unsigned key = head.key;
         register unsigned a = (key & 0xffff) * 20021;
         register unsigned b = (key >> 16) * 20021;
         register unsigned c = (key * 346 + b) + (a >> 16);
@@ -607,8 +587,8 @@ public:
         function<void(int, string)> _walk = [this, &_walk, &codes](int n, const string& prefix) {
             TreeNode& node = tree[n];
             if (!node.code) {
-                _walk(node.left, prefix+"1");
-                _walk(node.right, prefix+"0");
+                _walk(node.left, prefix+"0");
+                _walk(node.right, prefix+"1");
             } else {
                 codes.emplace(prefix, node.code.value());
             }
@@ -621,7 +601,6 @@ public:
         //image.strokeColor("black");
         //image.strokeWidth(1);
         //image.strokeAntiAlias(true);
-
 
         //function<void(int, string, int, int, int, int, int)> _drawWalk =
         //    [this, &_drawWalk, &codes, &image]
@@ -648,12 +627,12 @@ public:
         //_drawWalk(0, "", 10240, 20, 10240, 10240, 20);
 
         //image.write("hufftree.png");
-
+#ifdef _DEBUG
         ofstream flog("log-tree.txt", ios::out);
         for (auto it : codes) {
             flog << " '" << it.first << "': " << it.second << "," << endl;
         }
-
+#endif
         auto it = codes.begin();
         for (int i = 0; it != codes.end(); i++) {
             Freqs.push_back(it->second);
@@ -661,17 +640,18 @@ public:
         }
     }
 
+    static int get_bit_n;
+
     int getBit()
     {
-        static int n = -1;
         static char c;
-        if (n < 0) {
+        if (get_bit_n < 0) {
             fin.get(c);
-            n = 7;
+            get_bit_n = 7;
             //cout << "byte: " << hex << static_cast<int>(c) << endl;
         }
         //cout << "bit: " << ((c >> (n)) & 1) << endl;
-        return (c >> (n--)) & 1;
+        return (c >> (get_bit_n--)) & 1;
     }
 
     int getOffsetBits()
@@ -689,7 +669,9 @@ public:
         unique_ptr<char[]> buffer = make_unique<char[]>(head.size);
         char* pBuffer = buffer.get();
 
-        ofstream log("log.txt", ios::out);
+#ifdef _DEBUG
+        ofstream log("dec-codes.txt", ios::out);
+#endif
 
         while (decCount--) {
             int nodeIndex = 0;
@@ -705,11 +687,15 @@ public:
             //Freqs[code]++;
             if (code < 256) {
                 *pBuffer++ = static_cast<char>(code);
+#ifdef _DEBUG
                 log << hex << int(code)  << endl;
+#endif
             } else {
                 int count = (code & 0xff) + 2;
                 int offset = getOffsetBits() + 2;
+#ifdef _DEBUG
                 log << hex << ((count-2)|0x100) << ", " << (offset-2) << endl;
+#endif
                 char* pOffset = pBuffer - offset;
                 while (count--) {
                     *pBuffer++ = *pOffset++;
@@ -735,43 +721,30 @@ public:
         fstream fout(fileName, ios::out | ios::binary);
         if (! fout.is_open())
             return false;
-
+#ifdef _DEBUG
         ofstream log("dec-depth.txt");
-
+#endif
         vector<LeafNode> leafNodes;
         for (int i = 0; i < 512; i++) {
             static char depth;
             fin.get(depth);
-            char key = keyGen();
-            depth = depth - key;
+            char key = keyGen(head.key);
+            depth = (unsigned char) depth - key;
+#ifdef _DEBUG
             log << (int)depth << endl;
+#endif
             if (depth)
                 leafNodes.push_back({ depth, i });
         }
-
+#ifdef _DEBUG
         log.close();
-
+#endif
         sort(leafNodes.begin(), leafNodes.end(), [](LeafNode& l, LeafNode& r) {
             return (l.depth != r.depth) ? l.depth < r.depth : l.code < r.code;
         });
 
-        //ofstream flog("log.txt", ios::out);
-        //for (auto n : leafNodes) {
-        //    flog << hex << "0x" << n.depth << " 0x" << n.code << endl;
-        //}
-        //flog.close();
-
         huffmanTree(leafNodes);
         walkTree();
-
-        //ofstream flog("log.txt", ios::out);
-        //for (auto n : tree) {
-        //    if (n.code)
-        //        flog << "<HuffmanNode (" << n.code.value() << ")>" << endl;
-        //    else if (n.left > 0)
-        //        flog << "<HuffmanNode " << n.left << " " << n.right << ">" << endl;;
-        //}
-        //flog.close();
 
         decompress(fout);
         fout.flush();
@@ -780,69 +753,80 @@ public:
     }
 };
 
+int DSC_Decript::get_bit_n = -1;
+
+
+void compareBinany(const string& file1, const string& file2)
+{
+    ifstream f1(file1), f2(file2);
+    char c1, c2;
+
+    while (true) {
+        f1.get(c1);
+        f2.get(c2);
+        if (c1 != c2) {
+            cout << "!!!!!!" << endl;
+            return;
+        }
+        if (f1.eof() || f2.eof())
+            break;
+    }
+    if (f1.eof() != f2.eof())
+        cout << "!!!!!" << endl;
+}
+
+
+void test_bitsstream() {
+    ofsbitstream fout("test.bin", ios::binary);
+    fout.write(12, 0xf);
+    fout.write(12, 0xfef);
+    fout.write(4, 0xef);
+    fout.write(16, 0xabcd);
+    fout.write(2, 0xf);
+    fout.write(2, 0x0);
+    fout.write(32, 0xefaefaef);
+    fout.close();
+
+    ifstream fin("test.bin", ios_base::binary);
+    char c = fin.get();
+}
+
 
 void main(int *argc, char **argv)
 {
     //InitializeMagick(*argv);
 
-    //Image image(Geometry(800, 600), Color("white"));
+    string fileName = "D:\\_PEDIY\\bgi_tool\\arc-writer\\sysgrp\\SGLogWnd990000";
 
-    //image.depth(24);
+    cout << "DEC" << endl;
+    unique_ptr<DSC_Decript> dec = make_unique<DSC_Decript>();
+    if (dec->load(fileName))
+        dec->save(fileName + ".dec");
 
-    //// Set draw options
-    //image.strokeColor("red"); // Outline color
-    //image.fillColor("green"); // Fill color
-    //image.strokeWidth(1);
-
-    //// Draw a circle
-    //image.draw(DrawableCircle(100, 100, 0, 100));
-
-    // Draw a rectangle
-    //image.draw(DrawableRectangle(0, 0, 100, 200));
-
-    // Display the result
-    //image.display();
-    //try {
-    //    image.write("output.png");
-    //} catch (Exception &error_)
-    //{
-    //    cout << "Caught exception: " << error_.what() << endl;
-    //}
-
-    string fileName = "D:\\_PEDIY\\bgi_tool\\arc-writer\\sysprg\\title._bp";
-
-    //unique_ptr<DSC_Decript> dec = make_unique<DSC_Decript>();
-    //if (dec->load(fileName))
-    //    dec->save(fileName + ".dec");
-
+    cout << "ENC" << endl;
     unique_ptr<DSC_Encript> enc = make_unique<DSC_Encript>();
     if (enc->load(fileName + ".dec"))
         enc->save(fileName + ".enc");
 
+    cout << "DEC2" << endl;
     unique_ptr<DSC_Decript> dec2 = make_unique<DSC_Decript>();
     if (dec2->load(fileName + ".enc"))
         dec2->save(fileName + ".dec2");
 
-    //ofsbitstream fout("test.bin", ios::binary);
-    //fout.write(12, 0xf);
-    //fout.write(12, 0xfef);
-    //fout.write(4, 0xfef);
-    //fout.close();
+    cout << "CMP" << endl;
+    compareBinany(fileName + ".dec", fileName + ".dec2");
 
-    //ifstream fin("test.bin", ios_base::binary);
-    //char c = fin.get();
-    //c = c;
-    //int a;
-    //cin >> a;
+    cout << "ENC2" << endl;
+    unique_ptr<DSC_Encript> enc2 = make_unique<DSC_Encript>();
+    if (enc2->load(fileName + ".dec"))
+        enc2->save(fileName + ".enc");
 
-    //int v1 = 1, v2 = 2;
+    cout << "CMP2" << endl;
+    compareBinany(fileName + ".dec", fileName + ".dec2");
 
-    //int &rv1 = v1;
 
-    //int *pv1 = &rv1;
 
-    //cout << *pv1 << endl;
+    int a;
+    cin >> a;
 
-    //int a;
-    //cin >> a;
 }
